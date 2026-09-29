@@ -125,35 +125,28 @@ def build_profitability_report(**context):
 
     conn = psycopg2.connect(**PG_CONN)
     conn.autocommit = True
+    simulated_day_seconds = int(os.environ.get("SIMULATED_DAY_SECONDS", "300"))
     with conn.cursor() as cur:
-        # Join today's streaming earnings (summed from fleet_metrics windows
-        # whose window falls on business_date) against the batch cost feed.
         cur.execute(
-            """
+            f"""
             WITH earnings AS (
-                SELECT
-                    vc.vehicle_id,
-                    COALESCE(SUM(fm.total_earnings), 0) AS total_earnings
-                FROM vehicle_costs vc
-                LEFT JOIN vehicle_status_latest vsl ON vsl.vehicle_id = vc.vehicle_id
-                LEFT JOIN fleet_metrics fm
-                    ON fm.zone = vsl.zone
-                    AND fm.window_start::date = vc.business_date
-                WHERE vc.business_date = %s
-                GROUP BY vc.vehicle_id
+                SELECT vehicle_id, COALESCE(SUM(earnings), 0) AS total_earnings
+                FROM vehicle_earnings
+                WHERE window_start >= now() - interval '{simulated_day_seconds} seconds'
+                GROUP BY vehicle_id
             )
             INSERT INTO profitability_report
                 (business_date, vehicle_id, total_earnings, fuel_cost, maintenance_cost, net_profit, is_unprofitable)
             SELECT
                 vc.business_date,
                 vc.vehicle_id,
-                e.total_earnings,
+                COALESCE(e.total_earnings, 0),
                 vc.fuel_cost,
                 vc.maintenance_cost,
-                (e.total_earnings - vc.fuel_cost - vc.maintenance_cost) AS net_profit,
-                (e.total_earnings - vc.fuel_cost - vc.maintenance_cost) < 0 AS is_unprofitable
+                (COALESCE(e.total_earnings, 0) - vc.fuel_cost - vc.maintenance_cost),
+                (COALESCE(e.total_earnings, 0) - vc.fuel_cost - vc.maintenance_cost) < 0
             FROM vehicle_costs vc
-            JOIN earnings e ON e.vehicle_id = vc.vehicle_id
+            LEFT JOIN earnings e ON e.vehicle_id = vc.vehicle_id
             WHERE vc.business_date = %s
             ON CONFLICT (business_date, vehicle_id) DO UPDATE SET
                 total_earnings = EXCLUDED.total_earnings,
@@ -163,7 +156,7 @@ def build_profitability_report(**context):
                 is_unprofitable = EXCLUDED.is_unprofitable,
                 generated_at = now();
             """,
-            (business_date, business_date),
+            (business_date,),
         )
         cur.execute(
             "SELECT count(*) FROM profitability_report WHERE business_date = %s AND is_unprofitable = true",

@@ -216,6 +216,31 @@ def write_vehicle_status(batch_df: DataFrame, batch_id: int) -> None:
     except Exception as exc:  # noqa: BLE001
         log.error(f"Batch {batch_id}: failed writing vehicle_status_latest - {exc}")
 
+def write_vehicle_earnings(batch_df: DataFrame, batch_id: int) -> None:
+    if batch_df.rdd.isEmpty():
+        return
+    try:
+        vehicle_earnings = (
+            batch_df.groupBy(window(col("timestamp"), "30 seconds"), col("vehicle_id"))
+            .agg(spark_sum("fare").alias("earnings"))
+            .select(
+                col("vehicle_id"),
+                col("window.start").alias("window_start"),
+                col("window.end").alias("window_end"),
+                col("earnings"),
+            )
+        )
+        (
+            vehicle_earnings.write.format("jdbc")
+            .option("url", POSTGRES_URL)
+            .option("dbtable", "vehicle_earnings")
+            .options(**JDBC_PROPS)
+            .mode("append")
+            .save()
+        )
+        log.info(f"Batch {batch_id}: wrote vehicle_earnings rows")
+    except Exception as exc:  # noqa: BLE001
+        log.error(f"Batch {batch_id}: failed writing vehicle_earnings - {exc}")
 
 def main():
     spark = build_spark_session()
@@ -236,6 +261,14 @@ def main():
     status_query = (
         events.writeStream.foreachBatch(write_vehicle_status)
         .option("checkpointLocation", "/tmp/checkpoints/vehicle_status")
+        .outputMode("update")
+        .trigger(processingTime="15 seconds")
+        .start()
+    )
+
+    earnings_query = (
+        events_with_watermark.writeStream.foreachBatch(write_vehicle_earnings)
+        .option("checkpointLocation", "/tmp/checkpoints/vehicle_earnings")
         .outputMode("update")
         .trigger(processingTime="15 seconds")
         .start()
