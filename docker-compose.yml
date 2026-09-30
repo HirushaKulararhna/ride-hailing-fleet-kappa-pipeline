@@ -119,6 +119,7 @@ services:
       POSTGRES_PASSWORD: fleet
       STALE_THRESHOLD_SECONDS: "60"
       CHECK_INTERVAL_SECONDS: "20"
+      IDLE_THRESHOLD_SECONDS: "30"
     depends_on:
       postgres:
         condition: service_healthy

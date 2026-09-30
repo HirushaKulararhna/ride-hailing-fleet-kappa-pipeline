@@ -24,6 +24,21 @@ CREATE TABLE IF NOT EXISTS fleet_metrics (
 CREATE INDEX IF NOT EXISTS idx_fleet_metrics_window ON fleet_metrics (window_end);
 CREATE INDEX IF NOT EXISTS idx_fleet_metrics_zone ON fleet_metrics (zone);
 
+-- Per-vehicle earnings, windowed by Spark (separate from the per-zone
+-- fleet_metrics aggregation). The daily profitability reconciliation joins
+-- against this, since zone totals alone can't be split back out per vehicle.
+CREATE TABLE IF NOT EXISTS vehicle_earnings (
+    id            BIGSERIAL PRIMARY KEY,
+    vehicle_id    TEXT NOT NULL,
+    window_start  TIMESTAMP NOT NULL,
+    window_end    TIMESTAMP NOT NULL,
+    earnings      NUMERIC(12, 2) NOT NULL,
+    created_at    TIMESTAMP NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_vehicle_earnings_vehicle ON vehicle_earnings (vehicle_id);
+CREATE INDEX IF NOT EXISTS idx_vehicle_earnings_window ON vehicle_earnings (window_start);
+
 -- Per-vehicle idle-time tracking used for the "vehicle idle too long" alert
 CREATE TABLE IF NOT EXISTS vehicle_status_latest (
     vehicle_id          TEXT PRIMARY KEY,
