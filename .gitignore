@@ -1,6 +1,3 @@
-# Claude Code internal files
-.claude/
-
 # Generated data
 data/batch/*.json
 
